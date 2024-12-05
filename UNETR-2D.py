@@ -103,12 +103,12 @@ class UNETR(nn.Module):
         
         
         # z9 and z12 Decoder
-        x = BlueBlock(self.config["hidden_dim"], 512)(z9)
-        x1 = GreenBlock(self.config["hidden_dim"], 512)(z12)
-        x = torch.cat([x, x1], dim = 1)
-        x = OrangeBlock(512 + 512, 512)(x)
-        x = OrangeBlock(512, 512)(x)
-        print("X Shape : ", x.shape)
+        z9d1 = BlueBlock(self.config["hidden_dim"], 512)(z9)
+        z12d1 = GreenBlock(self.config["hidden_dim"], 512)(z12)
+        z9z12d1 = torch.cat([z9d1, z12d1], dim = 1)
+        z9z12d2 = OrangeBlock(512 + 512, 512)(z9z12d1)
+        z9z12d2 = OrangeBlock(512, 512)(z9z12d2)
+        print("Z9-Z12 DECODER OUTPUT SHAPE : ", z9z12d2.shape)
     
 if __name__ == "__main__":
     
