@@ -1,7 +1,10 @@
 from logging import config
 import torch # type: ignore
 import torch.nn as nn # type: ignore
-import numpy as np
+from torchvision import transforms # type: ignore
+import numpy as np # type: ignore
+import matplotlib.pyplot as plt # type: ignore
+from PIL import Image # type: ignore
 
 class OrangeBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size = 3, padding = 1):
@@ -43,7 +46,17 @@ class BlueBlock(nn.Module):
         x = self.relu(x)
         #print("X output blue block : ", x.shape)
         return x
-        
+    
+class GreyBlock(nn.Module):
+    #Classification Block
+    def __init__(self, in_channels, out_channels):
+        super(GreyBlock, self).__init__()    
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1,padding=0)
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        return x
+    
 class UNETR(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -87,11 +100,9 @@ class UNETR(nn.Module):
             if j in connection_map:
                 feature_map.append(x)
             j=j+1
-            
-        # CNN Decoder
-        z0 = inputs.view(batch_size, self.config["num_channels"], self.config["image_width"], self.config["image_height"])
-        print("Z0 after Reshaping : ", z0.shape)
         
+            
+        # Convolutional Decoder
         z3, z6, z9, z12 = feature_map
         hidden_shape = (batch_size, self.config["hidden_dim"], self.config["patch_width"], self.config["patch_height"])
         print("CNN Decoder Feature Maps Shape Before Reshaping : ", z3.shape, z6.shape, z9.shape, z12.shape)
@@ -103,12 +114,48 @@ class UNETR(nn.Module):
         
         
         # z9 and z12 Decoder
-        z9d1 = BlueBlock(self.config["hidden_dim"], 512)(z9)
-        z12d1 = GreenBlock(self.config["hidden_dim"], 512)(z12)
-        z9z12d1 = torch.cat([z9d1, z12d1], dim = 1)
-        z9z12d2 = OrangeBlock(512 + 512, 512)(z9z12d1)
-        z9z12d2 = OrangeBlock(512, 512)(z9z12d2)
-        print("Z9-Z12 DECODER OUTPUT SHAPE : ", z9z12d2.shape)
+        z9_d1 = BlueBlock(self.config["hidden_dim"], 512)(z9)
+        z12_d1 = GreenBlock(self.config["hidden_dim"], 512)(z12)
+        z9z12_d1 = torch.cat([z9_d1, z12_d1], dim = 1)
+        z9z12_d2 = OrangeBlock(512 + 512, 512)(z9z12_d1)
+        z9z12_d2 = OrangeBlock(512, 512)(z9z12_d2)
+        print("Z9-Z12 DECODER OUTPUT SHAPE : ", z9z12_d2.shape)
+        
+        # z6 and z9-z12 Decoder
+        z9z12_d3 = GreenBlock(512, 256)(z9z12_d2)
+        z6_d1 = BlueBlock(self.config["hidden_dim"], 256)(z6)
+        z6_d1 = BlueBlock(256, 256)(z6_d1)
+        z6z9z12_d3 = torch.cat([z6_d1, z9z12_d3], dim = 1)
+        z6z9z12_d4 = OrangeBlock(256 + 256, 256)(z6z9z12_d3)
+        z6z9z12_d4 = OrangeBlock(256, 256)(z6z9z12_d4)
+        print("Z6-Z9-Z12 DECODER OUTPUT SHAPE : ", z6z9z12_d4.shape)
+        
+        # z3 and z6-z9-z12 Decoder
+        z6z9z12_d5 = GreenBlock(256, 128)(z6z9z12_d4)
+        z3_d1 = BlueBlock(self.config["hidden_dim"], 128)(z3)
+        z3_d1 = BlueBlock(128, 128)(z3_d1)
+        z3_d1 = BlueBlock(128, 128)(z3_d1)
+        z3z6z9z12_d5 = torch.cat([z3_d1, z6z9z12_d5], dim = 1)
+        z3z6z9z12_d6 = OrangeBlock(128 + 128, 128)(z3z6z9z12_d5)
+        z3z6z9z12_d6 = OrangeBlock(128, 128)(z3z6z9z12_d6)
+        print("Z3-Z6-Z9-Z12 DECODER OUTPUT SHAPE : ", z3z6z9z12_d6.shape)
+        
+        # z0 and z3-z6-z9-z12 Decoder
+        z0 = inputs.view(batch_size, self.config["num_channels"], self.config["image_width"], self.config["image_height"])
+        print("Z0 after Reshaping : ", z0.shape)
+        z3z6z9z12_d7 = GreenBlock(128, 64)(z3z6z9z12_d6)
+        z0_d1 = OrangeBlock(z0.shape[1], 64)(z0)
+        z0_d1 = OrangeBlock(64, 64)(z0_d1)
+        z0z3z6z9z12_d7 = torch.cat([z0_d1, z3z6z9z12_d7], dim = 1)
+        z0z3z6z9z12_d8 = OrangeBlock(64+64, 64)(z0z3z6z9z12_d7)
+        z0z3z6z9z12_d8 = OrangeBlock(64, 64)(z0z3z6z9z12_d8)
+        print("Z0-Z3-Z6-Z9-Z12 DECODER OUTPUT SHAPE : ", z0z3z6z9z12_d8.shape)
+        
+        
+        # Output (the mask)
+        output = GreyBlock(64, 1)(z0z3z6z9z12_d8)
+        return output
+        
     
 if __name__ == "__main__":
     
@@ -126,11 +173,42 @@ if __name__ == "__main__":
     configuration["mlp_dim"] = 3072
     configuration["dropout_rate"] = 0.1    
     
+
     
-    # Input Tensor
-    x = torch.randn((8, configuration["num_patches"], configuration["patch_height"] * configuration["patch_width"] * configuration["num_channels"]))
-    print("Input Tensor Shape : ", x.shape)
+    # Load and preprocess an image
+    image_path = "MRI4gt.png"  
+    preprocess = transforms.Compose([ transforms.Resize((configuration["image_height"], configuration["image_width"])),transforms.ToTensor()])
+    image = Image.open(image_path).convert("RGB")
+    image_tensor = preprocess(image).unsqueeze(0)  
+    print("Image Tensor Shape:", image_tensor.shape)
     
+    # Convert image to patches
+    patches = image_tensor.unfold(2, configuration["patch_height"], configuration["patch_height"]).unfold(3, configuration["patch_width"], configuration["patch_width"])
+    patches = patches.contiguous().view(1, -1, configuration["patch_height"] * configuration["patch_width"] * configuration["num_channels"])
+    print("Patch Tensor Shape:", patches.shape)
+    
+    # Model
     model = UNETR(configuration)
-    model(x)
+     
     
+    output = model(patches)
+    print("Model Output Shape:", output.shape)
+        
+       
+    output_image = output.squeeze(0).squeeze(0).detach().numpy()  
+    print("Output Image Shape:", output_image.shape)
+        
+    # Display input image and result
+    plt.figure(figsize=(12, 6))
+
+    plt.subplot(1, 2, 1)
+    plt.imshow(image)
+    plt.title("Input Image")
+    plt.axis("off")
+
+    plt.subplot(1, 2, 2)
+    plt.imshow(output_image, cmap="gray")
+    plt.title("Output Mask")
+    plt.axis("off")
+
+    plt.show()
