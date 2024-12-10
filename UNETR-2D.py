@@ -23,7 +23,6 @@ class OrangeBlock(nn.Module):
 class GreenBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(GreenBlock, self).__init__()
-        
         self.deconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2,padding=0,stride=2)
 
     def forward(self, x):
@@ -39,16 +38,13 @@ class BlueBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
     
     def forward(self, x):
-        #print("X input blue block : ", x.shape)
         x = self.deconv1(x)
         x = self.conv2(x)
         x = self.bn(x)
         x = self.relu(x)
-        #print("X output blue block : ", x.shape)
         return x
     
 class GreyBlock(nn.Module):
-    #Classification Block
     def __init__(self, in_channels, out_channels):
         super(GreyBlock, self).__init__()    
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1,padding=0)
@@ -171,7 +167,7 @@ if __name__ == "__main__":
     configuration["num_layers"] = 12
     configuration["hidden_dim"] = 768
     configuration["mlp_dim"] = 3072
-    configuration["dropout_rate"] = 0.1    
+    configuration["dropout_rate"] = 0.3
     
 
     
@@ -189,8 +185,6 @@ if __name__ == "__main__":
     
     # Model
     model = UNETR(configuration)
-     
-    
     output = model(patches)
     print("Model Output Shape:", output.shape)
         
